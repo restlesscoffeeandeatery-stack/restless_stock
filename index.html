@@ -208,6 +208,7 @@
 
     <!-- DASHBOARD TAB -->
     <div id="tab-dashboard">
+      <button class="primary" style="margin-bottom:8px;" onclick="bukaInputCepat()">+ Input Stok Masuk / Keluar</button>
       <input class="search-box" id="searchBox" placeholder="Cari bahan..." oninput="renderBahanList()">
       <button class="secondary" style="margin-bottom:12px;" onclick="syncFromHPP()">🔄 Re-sync dari HPP Manager</button>
       <div id="bahanListContainer">
@@ -285,6 +286,48 @@
         <tbody id="tabelHistoryKeluar"></tbody>
       </table>
       <div id="emptyHistoryKeluar" class="empty-state" style="display:none;">Belum ada riwayat stok keluar.</div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL INPUT CEPAT (pilih bahan dari dropdown) -->
+<div class="modal-bg" id="modalInputCepat">
+  <div class="modal">
+    <span class="close-x" onclick="tutupInputCepat()">&times;</span>
+    <h2>Input Stok</h2>
+    <div class="sub" style="font-size:12px;color:#7a7566;">Pilih bahan, lalu isi stok masuk atau keluar</div>
+
+    <label>Bahan</label>
+    <select id="cepatBahanSelect" onchange="tampilkanMetaCepat()"></select>
+    <div class="bahan-meta" id="cepatBahanMeta" style="margin:4px 0 6px;"></div>
+
+    <div class="row-2" style="margin-top:8px;">
+      <button class="primary" onclick="showFormCepat('masuk')">+ Stok Masuk</button>
+      <button class="secondary" onclick="showFormCepat('keluar')">− Stok Keluar</button>
+    </div>
+
+    <div id="cepatFormMasuk" style="display:none;">
+      <label>Tanggal</label>
+      <input type="date" id="cepatMasukTanggal">
+      <label>Jumlah Masuk</label>
+      <input type="number" id="cepatMasukJumlah" min="0" step="any">
+      <label>Harga Beli / Satuan (Rp)</label>
+      <input type="number" id="cepatMasukHarga" min="0" step="any">
+      <button class="primary" style="margin-top:12px;" onclick="submitCepatMasuk()">Simpan Stok Masuk</button>
+    </div>
+
+    <div id="cepatFormKeluar" style="display:none;">
+      <label>Tanggal</label>
+      <input type="date" id="cepatKeluarTanggal">
+      <label>Jumlah Keluar</label>
+      <input type="number" id="cepatKeluarJumlah" min="0" step="any">
+      <label>Kategori</label>
+      <select id="cepatKeluarKategori">
+        <option value="Produksi">Produksi (terpakai)</option>
+        <option value="Waste">Waste (rusak/buang)</option>
+        <option value="Retur">Retur ke supplier</option>
+      </select>
+      <button class="primary" style="margin-top:12px;" onclick="submitCepatKeluar()">Simpan Stok Keluar</button>
     </div>
   </div>
 </div>
@@ -436,6 +479,25 @@ function showForm(tipe) {
   document.getElementById('formKeluar').style.display = tipe === 'keluar' ? 'block' : 'none';
 }
 
+// Helper terpusat — dipakai baik dari modal detail bahan maupun modal input cepat
+async function kirimStokMasuk(bahanId, tanggal, jumlah, harga) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'inputStokMasuk', kodeAkses, bahanId, tanggal, jumlah, hargaBeli: harga })
+  });
+  return res.json();
+}
+
+async function kirimStokKeluar(bahanId, tanggal, jumlah, kategori) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'inputStokKeluar', kodeAkses, bahanId, tanggal, jumlah, kategori })
+  });
+  return res.json();
+}
+
 async function submitStokMasuk() {
   const tanggal = document.getElementById('masukTanggal').value;
   const jumlah = Number(document.getElementById('masukJumlah').value);
@@ -445,12 +507,7 @@ async function submitStokMasuk() {
     return;
   }
   try {
-    const res = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'inputStokMasuk', kodeAkses, bahanId: bahanAktif.id, tanggal, jumlah, hargaBeli: harga })
-    });
-    const json = await res.json();
+    const json = await kirimStokMasuk(bahanAktif.id, tanggal, jumlah, harga);
     if (json.sukses) {
       showToast('Stok masuk tersimpan');
       tutupModal();
@@ -472,15 +529,101 @@ async function submitStokKeluar() {
     return;
   }
   try {
-    const res = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'inputStokKeluar', kodeAkses, bahanId: bahanAktif.id, tanggal, jumlah, kategori })
-    });
-    const json = await res.json();
+    const json = await kirimStokKeluar(bahanAktif.id, tanggal, jumlah, kategori);
     if (json.sukses) {
       showToast('Stok keluar tersimpan');
       tutupModal();
+      muatDaftarBahan();
+    } else {
+      showToast(json.pesan || 'Gagal menyimpan');
+    }
+  } catch (err) {
+    showToast('Gagal terhubung ke server');
+  }
+}
+
+// ============ MODAL INPUT CEPAT (pilih bahan dari dropdown) ============
+function bukaInputCepat() {
+  const select = document.getElementById('cepatBahanSelect');
+  const kategoriMap = {};
+  daftarBahan.forEach(b => {
+    const kat = b.kategori || 'Lainnya';
+    if (!kategoriMap[kat]) kategoriMap[kat] = [];
+    kategoriMap[kat].push(b);
+  });
+  let html = '';
+  Object.keys(kategoriMap).sort().forEach(kat => {
+    html += '<optgroup label="' + kat + '">';
+    kategoriMap[kat].forEach(b => {
+      html += '<option value="' + b.id + '">' + b.nama + '</option>';
+    });
+    html += '</optgroup>';
+  });
+  select.innerHTML = html;
+
+  document.getElementById('cepatMasukTanggal').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('cepatKeluarTanggal').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('cepatFormMasuk').style.display = 'none';
+  document.getElementById('cepatFormKeluar').style.display = 'none';
+  tampilkanMetaCepat();
+  document.getElementById('modalInputCepat').classList.add('open');
+}
+
+function tutupInputCepat() {
+  document.getElementById('modalInputCepat').classList.remove('open');
+}
+
+function tampilkanMetaCepat() {
+  const id = document.getElementById('cepatBahanSelect').value;
+  const b = daftarBahan.find(x => x.id === id);
+  const meta = document.getElementById('cepatBahanMeta');
+  if (!b) { meta.innerText = ''; return; }
+  meta.innerText = 'Stok saat ini: ' + formatAngka(b.stokAkhir) + ' ' + b.satuan
+    + ' · Harga rata-rata: Rp ' + formatAngka(Math.round(b.hargaRataRata)) + ' / ' + b.satuan;
+}
+
+function showFormCepat(tipe) {
+  document.getElementById('cepatFormMasuk').style.display = tipe === 'masuk' ? 'block' : 'none';
+  document.getElementById('cepatFormKeluar').style.display = tipe === 'keluar' ? 'block' : 'none';
+}
+
+async function submitCepatMasuk() {
+  const bahanId = document.getElementById('cepatBahanSelect').value;
+  const tanggal = document.getElementById('cepatMasukTanggal').value;
+  const jumlah = Number(document.getElementById('cepatMasukJumlah').value);
+  const harga = Number(document.getElementById('cepatMasukHarga').value);
+  if (!bahanId || !tanggal || !jumlah || jumlah <= 0 || isNaN(harga) || harga < 0) {
+    showToast('Pilih bahan dan isi tanggal, jumlah, harga dengan benar');
+    return;
+  }
+  try {
+    const json = await kirimStokMasuk(bahanId, tanggal, jumlah, harga);
+    if (json.sukses) {
+      showToast('Stok masuk tersimpan');
+      tutupInputCepat();
+      muatDaftarBahan();
+    } else {
+      showToast(json.pesan || 'Gagal menyimpan');
+    }
+  } catch (err) {
+    showToast('Gagal terhubung ke server');
+  }
+}
+
+async function submitCepatKeluar() {
+  const bahanId = document.getElementById('cepatBahanSelect').value;
+  const tanggal = document.getElementById('cepatKeluarTanggal').value;
+  const jumlah = Number(document.getElementById('cepatKeluarJumlah').value);
+  const kategori = document.getElementById('cepatKeluarKategori').value;
+  if (!bahanId || !tanggal || !jumlah || jumlah <= 0) {
+    showToast('Pilih bahan dan isi tanggal serta jumlah dengan benar');
+    return;
+  }
+  try {
+    const json = await kirimStokKeluar(bahanId, tanggal, jumlah, kategori);
+    if (json.sukses) {
+      showToast('Stok keluar tersimpan');
+      tutupInputCepat();
       muatDaftarBahan();
     } else {
       showToast(json.pesan || 'Gagal menyimpan');
