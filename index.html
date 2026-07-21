@@ -251,9 +251,10 @@
         <label>Tanggal</label>
         <input type="date" id="masukTanggal">
         <label>Jumlah Masuk</label>
-        <input type="number" id="masukJumlah" min="0" step="any">
-        <label>Harga Beli / Satuan (Rp)</label>
-        <input type="number" id="masukHarga" min="0" step="any">
+        <input type="number" id="masukJumlah" min="0" step="any" oninput="updatePreviewHargaSatuan('masuk')">
+        <label>Harga Total Pembelian (Rp)</label>
+        <input type="number" id="masukHargaTotal" min="0" step="any" oninput="updatePreviewHargaSatuan('masuk')">
+        <div class="bahan-meta" id="masukPreviewHargaSatuan" style="margin-top:4px;"></div>
         <button class="primary" style="margin-top:12px;" onclick="submitStokMasuk()">Simpan Stok Masuk</button>
       </div>
 
@@ -310,9 +311,10 @@
       <label>Tanggal</label>
       <input type="date" id="cepatMasukTanggal">
       <label>Jumlah Masuk</label>
-      <input type="number" id="cepatMasukJumlah" min="0" step="any">
-      <label>Harga Beli / Satuan (Rp)</label>
-      <input type="number" id="cepatMasukHarga" min="0" step="any">
+      <input type="number" id="cepatMasukJumlah" min="0" step="any" oninput="updatePreviewHargaSatuan('cepat')">
+      <label>Harga Total Pembelian (Rp)</label>
+      <input type="number" id="cepatMasukHargaTotal" min="0" step="any" oninput="updatePreviewHargaSatuan('cepat')">
+      <div class="bahan-meta" id="cepatPreviewHargaSatuan" style="margin-top:4px;"></div>
       <button class="primary" style="margin-top:12px;" onclick="submitCepatMasuk()">Simpan Stok Masuk</button>
     </div>
 
@@ -466,6 +468,9 @@ function bukaModal(bahanId) {
   document.getElementById('keluarTanggal').value = new Date().toISOString().slice(0, 10);
   document.getElementById('formMasuk').style.display = 'none';
   document.getElementById('formKeluar').style.display = 'none';
+  document.getElementById('masukJumlah').value = '';
+  document.getElementById('masukHargaTotal').value = '';
+  document.getElementById('masukPreviewHargaSatuan').innerText = '';
   switchMiniTab('input');
   document.getElementById('modalBahan').classList.add('open');
 }
@@ -477,6 +482,29 @@ function tutupModal() {
 function showForm(tipe) {
   document.getElementById('formMasuk').style.display = tipe === 'masuk' ? 'block' : 'none';
   document.getElementById('formKeluar').style.display = tipe === 'keluar' ? 'block' : 'none';
+}
+
+// Menampilkan hasil kalkulasi harga/satuan otomatis (Harga Total ÷ Jumlah Masuk)
+function updatePreviewHargaSatuan(sumber) {
+  let jumlah, hargaTotal, satuan, elId;
+  if (sumber === 'masuk') {
+    jumlah = Number(document.getElementById('masukJumlah').value);
+    hargaTotal = Number(document.getElementById('masukHargaTotal').value);
+    satuan = bahanAktif ? bahanAktif.satuan : 'satuan';
+    elId = 'masukPreviewHargaSatuan';
+  } else {
+    jumlah = Number(document.getElementById('cepatMasukJumlah').value);
+    hargaTotal = Number(document.getElementById('cepatMasukHargaTotal').value);
+    const b = daftarBahan.find(x => x.id === document.getElementById('cepatBahanSelect').value);
+    satuan = b ? b.satuan : 'satuan';
+    elId = 'cepatPreviewHargaSatuan';
+  }
+  const el = document.getElementById(elId);
+  if (jumlah > 0 && hargaTotal > 0) {
+    el.innerText = '≈ Rp ' + formatAngka(Math.round(hargaTotal / jumlah)) + ' / ' + satuan;
+  } else {
+    el.innerText = '';
+  }
 }
 
 // Helper terpusat — dipakai baik dari modal detail bahan maupun modal input cepat
@@ -501,13 +529,14 @@ async function kirimStokKeluar(bahanId, tanggal, jumlah, kategori) {
 async function submitStokMasuk() {
   const tanggal = document.getElementById('masukTanggal').value;
   const jumlah = Number(document.getElementById('masukJumlah').value);
-  const harga = Number(document.getElementById('masukHarga').value);
-  if (!tanggal || !jumlah || jumlah <= 0 || isNaN(harga) || harga < 0) {
-    showToast('Isi tanggal, jumlah, dan harga dengan benar');
+  const hargaTotal = Number(document.getElementById('masukHargaTotal').value);
+  if (!tanggal || !jumlah || jumlah <= 0 || isNaN(hargaTotal) || hargaTotal < 0) {
+    showToast('Isi tanggal, jumlah, dan harga total dengan benar');
     return;
   }
+  const hargaPerSatuan = hargaTotal / jumlah;
   try {
-    const json = await kirimStokMasuk(bahanAktif.id, tanggal, jumlah, harga);
+    const json = await kirimStokMasuk(bahanAktif.id, tanggal, jumlah, hargaPerSatuan);
     if (json.sukses) {
       showToast('Stok masuk tersimpan');
       tutupModal();
@@ -565,6 +594,9 @@ function bukaInputCepat() {
   document.getElementById('cepatKeluarTanggal').value = new Date().toISOString().slice(0, 10);
   document.getElementById('cepatFormMasuk').style.display = 'none';
   document.getElementById('cepatFormKeluar').style.display = 'none';
+  document.getElementById('cepatMasukJumlah').value = '';
+  document.getElementById('cepatMasukHargaTotal').value = '';
+  document.getElementById('cepatPreviewHargaSatuan').innerText = '';
   tampilkanMetaCepat();
   document.getElementById('modalInputCepat').classList.add('open');
 }
@@ -580,6 +612,7 @@ function tampilkanMetaCepat() {
   if (!b) { meta.innerText = ''; return; }
   meta.innerText = 'Stok saat ini: ' + formatAngka(b.stokAkhir) + ' ' + b.satuan
     + ' · Harga rata-rata: Rp ' + formatAngka(Math.round(b.hargaRataRata)) + ' / ' + b.satuan;
+  updatePreviewHargaSatuan('cepat');
 }
 
 function showFormCepat(tipe) {
@@ -591,13 +624,14 @@ async function submitCepatMasuk() {
   const bahanId = document.getElementById('cepatBahanSelect').value;
   const tanggal = document.getElementById('cepatMasukTanggal').value;
   const jumlah = Number(document.getElementById('cepatMasukJumlah').value);
-  const harga = Number(document.getElementById('cepatMasukHarga').value);
-  if (!bahanId || !tanggal || !jumlah || jumlah <= 0 || isNaN(harga) || harga < 0) {
-    showToast('Pilih bahan dan isi tanggal, jumlah, harga dengan benar');
+  const hargaTotal = Number(document.getElementById('cepatMasukHargaTotal').value);
+  if (!bahanId || !tanggal || !jumlah || jumlah <= 0 || isNaN(hargaTotal) || hargaTotal < 0) {
+    showToast('Pilih bahan dan isi tanggal, jumlah, harga total dengan benar');
     return;
   }
+  const hargaPerSatuan = hargaTotal / jumlah;
   try {
-    const json = await kirimStokMasuk(bahanId, tanggal, jumlah, harga);
+    const json = await kirimStokMasuk(bahanId, tanggal, jumlah, hargaPerSatuan);
     if (json.sukses) {
       showToast('Stok masuk tersimpan');
       tutupInputCepat();
